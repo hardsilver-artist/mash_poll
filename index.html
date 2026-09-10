@@ -415,6 +415,7 @@ if(!voterId){
 var state = null;      // last server state
 var picks = {};        // optionId -> F/M/K
 var submitted = false;
+var submittedPicks = null;   // the ballot the server currently holds
 var skew = 0;          // serverNow - clientNow (ms)
 var adminToken = lsGet("fmk_admin") || "";
 var revealed = false;
@@ -482,8 +483,18 @@ function confetti(){
 }
 
 /* ---------- render the deck ---------- */
+var lastDeckKey = "";
+function deckKey(){
+  if(!state) return "";
+  return JSON.stringify([state.roundId, state.status, state.options, state.results || null]);
+}
 function renderDeck(){
   if(!state) return;
+  // Rebuilding the deck recreates every <img>, which makes them flicker.
+  // Only rebuild when the line-up, round, status or results actually change.
+  var key = deckKey();
+  if(key === lastDeckKey){ paintPicks(); return; }
+  lastDeckKey = key;
   var opts = state.options || [];
   var closed = state.status === "closed";
   var open = state.status === "open";
@@ -495,14 +506,14 @@ function renderDeck(){
     var o = opts[i];
     var mine = picks[o.id];
     var img = o.image
-      ? '<img src="'+esc(absImg(o.image))+'" alt="'+esc(o.label||"contender")+'" loading="lazy">'
+      ? '<img src="'+esc(absImg(o.image))+'" alt="'+esc(o.label||"contender")+'" decoding="async" draggable="false">'
       : '<div class="empty"><span>✧</span>'+(closed||open ? "no picture" : "waiting for the host")+'</div>';
 
     var buttons = "";
     for(var k=0;k<3;k++){
       var v = VAL[k];
       var on = mine === v ? " on" : "";
-      var dis = (!open || submitted) ? " disabled" : "";
+      var dis = !open ? " disabled" : "";
       buttons += '<button class="pick'+on+'" data-v="'+v+'" data-opt="'+esc(o.id)+'"'+dis+'>'
                + '<span class="ic">'+VICON[v]+'</span>'+VNAME[v]+'</button>';
     }
@@ -549,6 +560,25 @@ function renderDeck(){
 
   var btns = deck.querySelectorAll(".pick");
   for(var b=0;b<btns.length;b++){ btns[b].addEventListener("click", onPick); }
+  paintPicks();
+}
+
+// update only the selected/disabled state — never touches the images
+function paintPicks(){
+  if(!state) return;
+  var open = state.status === "open";
+  var slots = document.querySelectorAll("#deck .slot");
+  for(var i=0;i<slots.length;i++){
+    var el = slots[i], oid = el.getAttribute("data-opt"), mine = picks[oid];
+    var want = "slot" + (mine ? " chosen-"+mine : "");
+    if(el.className !== want) el.className = want;
+    var btns = el.querySelectorAll(".pick");
+    for(var j=0;j<btns.length;j++){
+      var b = btns[j];
+      if(mine === b.getAttribute("data-v")) b.classList.add("on"); else b.classList.remove("on");
+      b.disabled = !open;
+    }
+  }
 }
 
 function onPick(e){
@@ -561,17 +591,25 @@ function onPick(e){
     for(var k in picks){ if(picks[k] === v) delete picks[k]; }
     picks[opt] = v;
   }
-  renderDeck();
+  paintPicks();
   refreshBar();
 }
 
+function samePicks(){
+  if(!submittedPicks) return false;
+  for(var a in picks){ if(submittedPicks[a] !== picks[a]) return false; }
+  for(var b2 in submittedPicks){ if(picks[b2] !== submittedPicks[b2]) return false; }
+  return true;
+}
 function refreshBar(){
   var open = state && state.status === "open";
   var n = 0; for(var k in picks) n++;
   var complete = n === 3;
+  var unchanged = submitted && samePicks();
   var sb = $("submit");
-  sb.disabled = !open || !complete || submitted;
-  if(submitted){ sb.textContent = "Locked in ✓"; $("hint").textContent = "you can still change it while the clock runs"; }
+  sb.disabled = !open || !complete || unchanged;
+  if(unchanged){ sb.textContent = "Locked in ✓"; $("hint").textContent = "you can still change it while the clock runs"; }
+  else if(submitted && complete && open){ sb.textContent = "Update my picks"; $("hint").textContent = "you changed your mind — lock it in again"; }
   else if(!open){ sb.textContent = "Lock it in"; $("hint").textContent = state && state.status==="closed" ? "voting is closed" : "waiting for the host to start"; }
   else if(complete){ sb.textContent = "Lock it in"; $("hint").textContent = "last chance to change your mind"; }
   else { sb.textContent = "Lock it in"; $("hint").textContent = "pick one of each — no doubles! (" + n + "/3)"; }
@@ -605,10 +643,10 @@ function applyState(s){
   skew = new Date(s.serverNow).getTime() - Date.now();
 
   if(prevRound && prevRound !== s.roundId){
-    picks = {}; submitted = false; revealed = false; lsDel("fmk_picks_"+prevRound);
+    picks = {}; submitted = false; submittedPicks = null; revealed = false; lsDel("fmk_picks_"+prevRound);
   }
-  if(s.yourVote && !submitted){ picks = s.yourVote; submitted = true; }
-  if(!s.yourVote && submitted && s.status !== "closed"){ picks = {}; submitted = false; }
+  if(s.yourVote && !submitted){ picks = s.yourVote; submitted = true; submittedPicks = JSON.parse(JSON.stringify(s.yourVote)); }
+  if(!s.yourVote && submitted && s.status !== "closed"){ picks = {}; submitted = false; submittedPicks = null; }
 
   $("title").textContent = s.title || "KISS · MARRY · KILL";
   $("sub").textContent = s.subtitle || "";
@@ -670,6 +708,7 @@ $("submit").addEventListener("click", function(){
   api("/api/vote", { voterId: voterId, assign: picks, name: ($("nick").value||"").trim(), roundId: state.roundId })
     .then(function(){
       submitted = true;
+      submittedPicks = JSON.parse(JSON.stringify(picks));
       lsSet("fmk_name", ($("nick").value||"").trim());
       confettiSmall();
       return load();
