@@ -316,7 +316,7 @@ input:focus,select:focus{border-color:var(--lilac-d)}
     <p id="bannerText"></p>
   </div>
 
-  <div class="foot">made with gel pens &amp; questionable judgment</div>
+  <div class="foot">made with gel pens &amp; questionable judgment<br><span id="build" style="opacity:.6"></span></div>
 </div>
 
 <button class="adminbtn" id="adminbtn" title="Host controls">&#9998;</button>
@@ -392,6 +392,7 @@ input:focus,select:focus{border-color:var(--lilac-d)}
 var BASE = "https://eqmuzurpmsogcbbrmvnp.supabase.co/functions/v1/fmk-poll";
 var IMGBASE = "https://eqmuzurpmsogcbbrmvnp.supabase.co/functions/v1";
 function absImg(u){ if(!u) return ""; return u.charAt(0) === "/" ? IMGBASE + u : u; }
+var BUILD = "build 8 · 2026-09-10";
 var VAL = ["F","M","K"];
 var VNAME = {F:"KISS", M:"MARRY", K:"KILL"};
 var VICON = {F:"💋", M:"💍", K:"🔪"};
@@ -688,8 +689,8 @@ function applyState(s){
 
 function load(){
   return api("/api/state?v=" + encodeURIComponent(voterId))
-    .then(applyState)
-    .catch(function(e){ console.warn("state", e.message); });
+    .then(function(s){ applyState(s); return true; })
+    .catch(function(e){ console.warn("state", e.message); return false; });
 }
 
 /* ---------- submit ---------- */
@@ -868,16 +869,17 @@ function payload(){
   }
   return p;
 }
-function adminCall(path, extra, okMsg){
+function adminCall(path, extra, okMsg, skipResync){
   var m = $("adminMsg"); m.className = "msg"; m.innerHTML = '<span class="spin">✧</span> working…';
   var body = payload();
   for(var k in (extra||{})) body[k] = extra[k];
   return api(path, body)
     .then(function(){ return load(); })
-    .then(function(){
-      // re-sync the form from the server, or the panel keeps showing the old
-      // line-up and the next Save writes it straight back
-      if(!$("adminView").classList.contains("hidden")) showAdmin();
+    .then(function(refreshed){
+      // Re-sync the form from the server, or the panel keeps showing the old
+      // line-up and the next Save writes it straight back. Skip it when the
+      // refresh failed (stale state) or the caller already cleared locally.
+      if(refreshed && !skipResync && !$("adminView").classList.contains("hidden")) showAdmin();
       m.className = "msg ok"; m.textContent = okMsg;
     })
     .catch(function(e){
@@ -890,13 +892,16 @@ $("startBtn").addEventListener("click", function(){ adminCall("/api/admin/save",
 $("closeNowBtn").addEventListener("click", function(){ adminCall("/api/admin/close", {}, "voting closed — results are up."); });
 $("resetBtn").addEventListener("click", function(){
   if(!confirm("Wipe every vote in this round?\n\nThe three contenders stay as they are. It cannot be undone.")) return;
-  picks={}; submitted=false;
+  picks={}; submitted=false; submittedPicks=null;
   adminCall("/api/admin/reset", {}, "votes wiped.");
 });
 $("newRoundBtn").addEventListener("click", function(){
   if(!confirm("Start a brand new round?\n\nThis clears the three contenders AND every vote. It cannot be undone.")) return;
-  picks={}; submitted=false;
-  adminCall("/api/admin/newround", {}, "fresh round — set the line-up and start.");
+  picks={}; submitted=false; submittedPicks=null;
+  draft = [{id:"a",label:"",image:""},{id:"b",label:"",image:""},{id:"c",label:"",image:""}];
+  $("fSub").value = "";
+  renderSlots();
+  adminCall("/api/admin/newround", {}, "fresh round — set the line-up and start.", true);
 });
 $("passBtn").addEventListener("click", function(){
   var np = $("fNewPass").value;
@@ -913,6 +918,7 @@ $("passBtn").addEventListener("click", function(){
 });
 
 /* ---------- boot ---------- */
+$("build").textContent = BUILD;
 load().then(function(){
   setInterval(tick, 250);
   pollTimer = setInterval(function(){ if(!document.hidden) load(); }, 2500);
