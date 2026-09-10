@@ -191,11 +191,6 @@ h1{
 .bigbtn:active:not(:disabled){transform:translateY(5px);box-shadow:0 0 0 var(--ink)}
 .bigbtn:disabled{background:#DDD3E8;color:#9C8BB0;cursor:not-allowed;box-shadow:0 5px 0 rgba(62,35,82,.28);border-color:rgba(62,35,82,.28)}
 .hint{font-family:'Gloria Hallelujah',cursive;font-size:13px;color:var(--ink-soft)}
-.nick{
-  font-family:'Gloria Hallelujah',cursive;font-size:14px;padding:9px 16px;border-radius:99px;text-align:center;
-  border:2.5px dashed rgba(185,155,224,.85);background:rgba(255,255,255,.8);color:var(--ink);width:220px;outline:none
-}
-.nick:focus{border-color:var(--lilac-d);background:#fff}
 .tally{font-family:'Gloria Hallelujah',cursive;font-size:13px;color:var(--ink-soft);line-height:1.7}
 .tally b{color:var(--pink-d)}
 
@@ -312,7 +307,6 @@ input:focus,select:focus{border-color:var(--lilac-d)}
   <div class="deck" id="deck"></div>
 
   <div class="bar" id="bar">
-    <input class="nick" id="nick" maxlength="18" placeholder="your name (optional)">
     <button class="bigbtn" id="submit" disabled>Lock it in</button>
     <div class="hint" id="hint">pick one of each — no doubles!</div>
   </div>
@@ -666,8 +660,7 @@ function applyState(s){
   if(s.status === "closed"){
     tally.innerHTML = "<b>" + s.totalVotes + "</b> " + (s.totalVotes===1?"vote":"votes") + " counted";
   } else if(s.totalVotes > 0){
-    var who = (s.voters && s.voters.length) ? " — " + s.voters.map(esc).join(", ") : "";
-    tally.innerHTML = "<b>" + s.totalVotes + "</b> " + (s.totalVotes===1?"vote is":"votes are") + " in" + who;
+    tally.innerHTML = "<b>" + s.totalVotes + "</b> " + (s.totalVotes===1?"vote is":"votes are") + " in";
   } else {
     tally.textContent = s.status === "open" ? "no votes yet — be the first" : "no votes yet";
   }
@@ -705,11 +698,10 @@ $("submit").addEventListener("click", function(){
   if(n !== 3) return;
   var btn = $("submit");
   btn.disabled = true; btn.textContent = "sending…";
-  api("/api/vote", { voterId: voterId, assign: picks, name: ($("nick").value||"").trim(), roundId: state.roundId })
+  api("/api/vote", { voterId: voterId, assign: picks, roundId: state.roundId })
     .then(function(){
       submitted = true;
       submittedPicks = JSON.parse(JSON.stringify(picks));
-      lsSet("fmk_name", ($("nick").value||"").trim());
       confettiSmall();
       return load();
     })
@@ -729,7 +721,6 @@ function confettiSmall(){
   }
   setTimeout(function(){ host.innerHTML=""; }, 2600);
 }
-var savedName = lsGet("fmk_name"); if(savedName) $("nick").value = savedName;
 
 /* =========================================================
    ADMIN
