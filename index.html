@@ -873,7 +873,13 @@ function adminCall(path, extra, okMsg){
   var body = payload();
   for(var k in (extra||{})) body[k] = extra[k];
   return api(path, body)
-    .then(function(){ m.className="msg ok"; m.textContent = okMsg; return load(); })
+    .then(function(){ return load(); })
+    .then(function(){
+      // re-sync the form from the server, or the panel keeps showing the old
+      // line-up and the next Save writes it straight back
+      if(!$("adminView").classList.contains("hidden")) showAdmin();
+      m.className = "msg ok"; m.textContent = okMsg;
+    })
     .catch(function(e){
       m.className="msg err"; m.textContent = e.message;
       if(/token|passphrase/i.test(e.message)){ adminToken=""; lsDel("fmk_admin"); $("adminView").classList.add("hidden"); $("loginView").classList.remove("hidden"); }
@@ -883,12 +889,12 @@ $("saveBtn").addEventListener("click", function(){ adminCall("/api/admin/save", 
 $("startBtn").addEventListener("click", function(){ adminCall("/api/admin/save", {start:true}, "the clock is running."); });
 $("closeNowBtn").addEventListener("click", function(){ adminCall("/api/admin/close", {}, "voting closed — results are up."); });
 $("resetBtn").addEventListener("click", function(){
-  if(!confirm("Wipe every vote in this round and go back to not-started?")) return;
+  if(!confirm("Wipe every vote in this round?\n\nThe three contenders stay as they are. It cannot be undone.")) return;
   picks={}; submitted=false;
   adminCall("/api/admin/reset", {}, "votes wiped.");
 });
 $("newRoundBtn").addEventListener("click", function(){
-  if(!confirm("Start a brand new round? The current results are cleared.")) return;
+  if(!confirm("Start a brand new round?\n\nThis clears the three contenders AND every vote. It cannot be undone.")) return;
   picks={}; submitted=false;
   adminCall("/api/admin/newround", {}, "fresh round — set the line-up and start.");
 });
