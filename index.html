@@ -259,6 +259,21 @@ input:focus,select:focus{border-color:var(--lilac-d)}
 }
 .drop:hover,.drop.over{border-color:var(--pink-d);background:#FFF4FA;color:var(--pink-d)}
 .drop img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.presets{display:flex;flex-wrap:wrap;gap:8px}
+.preset{display:flex;align-items:stretch;border:2.5px solid var(--ink);border-radius:99px;
+  background:#fff;box-shadow:0 3px 0 var(--ink);overflow:hidden}
+.preset button{font-family:'Fredoka',sans-serif;border:0;background:transparent;cursor:pointer;
+  color:var(--ink);font-size:12.5px;font-weight:600;padding:8px 13px;transition:background .15s}
+.preset .nm:hover{background:rgba(255,225,128,.55)}
+.preset .go{background:var(--mint);border-left:2px solid var(--ink);padding:8px 12px}
+.preset .go:hover{background:#8ce4c4}
+.preset .del{color:var(--ink-soft);border-left:2px solid rgba(62,35,82,.22);padding:8px 11px}
+.preset .del:hover{background:var(--pink);color:#fff}
+.presets .none{font-family:'Gloria Hallelujah',cursive;font-size:12px;color:var(--ink-soft);padding:4px 0}
+textarea{width:100%;padding:10px 12px;border-radius:10px;border:2.5px solid rgba(62,35,82,.22);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--ink);
+  background:#fff;resize:vertical;outline:none}
+textarea:focus{border-color:var(--lilac-d)}
 .btnrow{display:flex;gap:9px;flex-wrap:wrap;margin-top:20px}
 .btn{
   font-family:'Fredoka',sans-serif;font-weight:600;font-size:13px;padding:10px 18px;border-radius:99px;
@@ -346,6 +361,20 @@ input:focus,select:focus{border-color:var(--lilac-d)}
       <label for="fSub">Subtitle / round name</label>
       <input type="text" id="fSub" maxlength="70" placeholder="round 1: the group chat">
 
+      <label>Saved line-ups</label>
+      <div class="presets" id="presets"></div>
+      <div class="btnrow" style="margin-top:9px">
+        <button class="btn" id="savePresetBtn">Save this line-up</button>
+        <button class="btn ghost" id="backupBtn">Back up / restore</button>
+      </div>
+      <div id="backupBox" class="hidden">
+        <label for="backupText">Copy this somewhere safe, or paste a backup in and press Restore</label>
+        <textarea id="backupText" rows="4" spellcheck="false"></textarea>
+        <div class="btnrow" style="margin-top:9px">
+          <button class="btn" id="restoreBtn">Restore from text</button>
+        </div>
+      </div>
+
       <label>The three contenders</label>
       <div class="grid3" id="slots"></div>
 
@@ -392,7 +421,7 @@ input:focus,select:focus{border-color:var(--lilac-d)}
 var BASE = "https://eqmuzurpmsogcbbrmvnp.supabase.co/functions/v1/fmk-poll";
 var IMGBASE = "https://eqmuzurpmsogcbbrmvnp.supabase.co/functions/v1";
 function absImg(u){ if(!u) return ""; return u.charAt(0) === "/" ? IMGBASE + u : u; }
-var BUILD = "build 8 · 2026-09-10";
+var BUILD = "build 9 · 2026-10-05";
 var VAL = ["F","M","K"];
 var VNAME = {F:"KISS", M:"MARRY", K:"KILL"};
 var VICON = {F:"💋", M:"💍", K:"🔪"};
@@ -835,6 +864,115 @@ $("fMode").addEventListener("change", function(){
   $("modeCountdown").classList.toggle("hidden", d);
 });
 
+/* ---------- saved line-ups (stored in this browser) ---------- */
+function getPresets(){
+  try{ var a = JSON.parse(lsGet("fmk_presets") || "[]"); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+function putPresets(a){ lsSet("fmk_presets", JSON.stringify(a.slice(0,12))); }
+
+function renderPresets(){
+  var list = getPresets(), host = $("presets");
+  if(!list.length){
+    host.innerHTML = '<div class="none">none yet \u2014 build a line-up below, then press \u201cSave this line-up\u201d.</div>';
+    return;
+  }
+  var h = "";
+  for(var i=0;i<list.length;i++){
+    h += '<div class="preset">'
+       + '<button class="nm" data-act="load" data-i="'+i+'" title="Load into the form">'+esc(list[i].name)+'</button>'
+       + '<button class="go" data-act="go" data-i="'+i+'" title="Load and start the clock">\u25B6</button>'
+       + '<button class="del" data-act="del" data-i="'+i+'" title="Delete">\u00D7</button>'
+       + '</div>';
+  }
+  host.innerHTML = h;
+  var b = host.querySelectorAll("button");
+  for(var k=0;k<b.length;k++) b[k].addEventListener("click", onPreset);
+}
+
+function applyPreset(pr){
+  $("fSub").value = pr.subtitle || "";
+  if(pr.title) $("fTitle").value = pr.title;
+  draft = (pr.options || []).map(function(o){ return {id:o.id, label:o.label||"", image:o.image||""}; });
+  while(draft.length < 3) draft.push({id:["a","b","c"][draft.length], label:"", image:""});
+  renderSlots();
+  $("fMode").value = pr.timerMode || "countdown";
+  $("fDur").value = pr.durationSec || 90;
+  if(pr.deadline) $("fDeadline").value = pr.deadline;
+  $("fMode").dispatchEvent(new Event("change"));
+}
+
+function onPreset(e){
+  var act = e.currentTarget.getAttribute("data-act");
+  var i = +e.currentTarget.getAttribute("data-i");
+  var list = getPresets(), pr = list[i];
+  if(!pr) return;
+  var m = $("adminMsg");
+  if(act === "del"){
+    if(!confirm("Delete the saved line-up \u201c" + pr.name + "\u201d?")) return;
+    list.splice(i,1); putPresets(list); renderPresets();
+    m.className = "msg ok"; m.textContent = "deleted.";
+    return;
+  }
+  applyPreset(pr);
+  if(act === "load"){
+    m.className = "msg ok";
+    m.textContent = "\u201c" + pr.name + "\u201d loaded \u2014 press Save & start when you're ready.";
+    return;
+  }
+  picks = {}; submitted = false; submittedPicks = null;
+  adminCall("/api/admin/save", {start:true}, "\u201c" + pr.name + "\u201d is live \u2014 the clock is running.");
+}
+
+$("savePresetBtn").addEventListener("click", function(){
+  var m = $("adminMsg");
+  var has = false;
+  for(var d=0; d<draft.length; d++) if(draft[d].label || draft[d].image) has = true;
+  if(!has){ m.className = "msg err"; m.textContent = "give the contenders a label or a picture first."; return; }
+  var suggested = ($("fSub").value || "").trim() || ("Line-up " + (getPresets().length + 1));
+  var name = prompt("Name this line-up (so you can find it mid-stream):", suggested);
+  if(name === null) return;
+  name = name.trim().slice(0,24) || suggested;
+  var list = getPresets();
+  var pr = {
+    name: name,
+    title: $("fTitle").value,
+    subtitle: $("fSub").value,
+    options: draft.map(function(d2){ return {id:d2.id, label:d2.label, image:d2.image}; }),
+    timerMode: $("fMode").value,
+    durationSec: parseInt($("fDur").value,10) || 90,
+    deadline: $("fDeadline").value || ""
+  };
+  var at = -1;
+  for(var i2=0;i2<list.length;i2++) if(list[i2].name === name) at = i2;
+  if(at >= 0){
+    if(!confirm("\u201c" + name + "\u201d already exists. Overwrite it?")) return;
+    list[at] = pr;
+  } else {
+    if(list.length >= 12){ m.className="msg err"; m.textContent="12 saved line-ups is the limit \u2014 delete one first."; return; }
+    list.push(pr);
+  }
+  putPresets(list); renderPresets();
+  m.className = "msg ok"; m.textContent = "saved as \u201c" + name + "\u201d.";
+});
+
+$("backupBtn").addEventListener("click", function(){
+  var box = $("backupBox"), open = !box.classList.contains("hidden");
+  box.classList.toggle("hidden", open);
+  if(!open) $("backupText").value = JSON.stringify(getPresets());
+});
+$("restoreBtn").addEventListener("click", function(){
+  var m = $("adminMsg");
+  try{
+    var a = JSON.parse($("backupText").value);
+    if(!(a instanceof Array)) throw new Error("not a list");
+    putPresets(a); renderPresets();
+    m.className = "msg ok"; m.textContent = "restored " + a.length + " line-up" + (a.length===1?"":"s") + ".";
+  }catch(err){
+    m.className = "msg err"; m.textContent = "that doesn't look like a backup \u2014 paste the whole thing.";
+  }
+});
+
 function showAdmin(){
   $("loginView").classList.add("hidden");
   $("adminView").classList.remove("hidden");
@@ -852,6 +990,7 @@ function showAdmin(){
     $("fDeadline").value = new Date(dt.getTime()-off).toISOString().slice(0,16);
   }
   $("fMode").dispatchEvent(new Event("change"));
+  renderPresets();
 }
 
 function payload(){
